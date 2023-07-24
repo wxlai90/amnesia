@@ -52,6 +52,15 @@ func (co *Collection) Find(filter Filter) []Document {
 	return res
 }
 
+func (co *Collection) FindAll() []Document {
+	docs, err := readAllDocumentsInCollection(co.collection, co.baseDir)
+	if err != nil {
+		panic(err)
+	}
+
+	return docs
+}
+
 func (co *Collection) FindOne(filter Filter) Document {
 	docs, err := readAllDocumentsInCollection(co.collection, co.baseDir)
 	if err != nil {
@@ -196,7 +205,7 @@ func generateObjectID() string {
 func ensureCollectionDirExists(baseDir, collection string) error {
 	_, err := os.Stat(path.Join(baseDir, collection))
 	if os.IsNotExist(err) {
-		err = os.Mkdir(path.Join(baseDir, collection), os.ModePerm)
+		err = os.MkdirAll(path.Join(baseDir, collection), os.ModePerm)
 		if err != nil {
 			return err
 		}
