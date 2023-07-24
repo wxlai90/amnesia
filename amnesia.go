@@ -76,7 +76,11 @@ func (co *Collection) FindOne(filter Filter) Document {
 	return nil
 }
 
-func (co *Collection) Insert(doc Document) string {
+func (co *Collection) Insert(x any) string {
+	var doc Document
+	data, _ := json.Marshal(x)
+	json.Unmarshal(data, &doc)
+
 	idValue, idExists := doc["id"]
 	if !idExists {
 		idValue = generateObjectID()
