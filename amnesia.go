@@ -167,6 +167,12 @@ func writeDocumentToDisk(collection, id string, doc Document, baseDir string) {
 }
 
 func readAllDocumentsInCollection(collection, baseDir string) ([]Document, error) {
+	_, err := os.Stat(path.Join(baseDir, collection))
+	if err != nil {
+		// path does not exist, return empty slice, does not create dir
+		return []Document{}, nil
+	}
+
 	files, err := ioutil.ReadDir(path.Join(baseDir, collection))
 	if err != nil {
 		return nil, err
