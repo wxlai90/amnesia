@@ -85,7 +85,7 @@ func (fp *filePersistor) Update(collection string, doc Document) error {
 		return ErrIdNotFound
 	}
 
-	oldDoc := findDocById(path.Join(fp.baseDir, collection, id, ".json"))
+	oldDoc := findDocById(path.Join(fp.baseDir, collection, id+".json"))
 	if oldDoc == nil {
 		return ErrDocNotExist
 	}
