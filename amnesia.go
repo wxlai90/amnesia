@@ -2,205 +2,22 @@ package amnesia
 
 import (
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"os"
-	"path"
-	"strings"
 )
 
 type Amnesia struct {
-	baseDir string
+	baseDir   string
+	persistor Persistor
 }
 
 type Collection struct {
-	collection string
-	baseDir    string
+	name      string
+	persistor Persistor
 }
 
 type Document map[string]interface{}
 
 type Filter map[string]interface{}
-
-func New(baseDir string) *Amnesia {
-	return &Amnesia{
-		baseDir: baseDir,
-	}
-}
-
-func (am *Amnesia) Collection(collection string) *Collection {
-	return &Collection{
-		collection: collection,
-		baseDir:    am.baseDir,
-	}
-}
-
-func (co *Collection) Find(filter Filter) []Document {
-	docs, err := readAllDocumentsInCollection(co.collection, co.baseDir)
-	if err != nil {
-		panic(err)
-	}
-
-	res := []Document{}
-	for _, doc := range docs {
-		if matchesFilter(doc, filter) {
-			res = append(res, doc)
-		}
-	}
-
-	return res
-}
-
-func (co *Collection) FindAll() []Document {
-	docs, err := readAllDocumentsInCollection(co.collection, co.baseDir)
-	if err != nil {
-		panic(err)
-	}
-
-	return docs
-}
-
-func (co *Collection) FindOne(filter Filter) Document {
-	docs, err := readAllDocumentsInCollection(co.collection, co.baseDir)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, doc := range docs {
-		if matchesFilter(doc, filter) {
-			return doc
-		}
-	}
-
-	return nil
-}
-
-func (co *Collection) Insert(x any) string {
-	var doc Document
-	data, _ := json.Marshal(x)
-	json.Unmarshal(data, &doc)
-
-	idValue, idExists := doc["id"]
-	if !idExists {
-		idValue = generateObjectID()
-		doc["id"] = idValue
-	}
-
-	err := ensureCollectionDirExists(co.baseDir, co.collection)
-	if err != nil {
-		panic(err)
-	}
-
-	writeDocumentToDisk(co.collection, idValue.(string), doc, co.baseDir)
-
-	return idValue.(string)
-}
-
-func (co *Collection) Update(filter Filter, update Document) {
-	docs, err := readAllDocumentsInCollection(co.collection, co.baseDir)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, doc := range docs {
-		if matchesFilter(doc, filter) {
-			updatedDoc := applyUpdate(doc, update)
-			idValue, idExists := updatedDoc["id"]
-			if idExists {
-				err := ensureCollectionDirExists(co.baseDir, co.collection)
-				if err != nil {
-					panic(err)
-				}
-
-				writeDocumentToDisk(co.collection, idValue.(string), updatedDoc, co.baseDir)
-			}
-		}
-	}
-}
-
-func (co *Collection) Delete(filter Filter) {
-	docs, err := readAllDocumentsInCollection(co.collection, co.baseDir)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, doc := range docs {
-		if matchesFilter(doc, filter) {
-			idValue, idExists := doc["id"]
-			if idExists {
-				deleteDocumentFromDisk(co.collection, idValue.(string), co.baseDir)
-			}
-		}
-	}
-}
-
-func matchesFilter(doc Document, filter Filter) bool {
-	for k, v := range filter {
-		if doc[k] != v {
-			return false
-		}
-	}
-
-	return true
-}
-
-func applyUpdate(doc Document, update Document) Document {
-	for k, v := range update {
-		doc[k] = v
-	}
-
-	return doc
-}
-
-func writeDocumentToDisk(collection, id string, doc Document, baseDir string) {
-	data, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return
-	}
-
-	filename := path.Join(baseDir, collection, id+".json")
-	err = ioutil.WriteFile(filename, data, 0644)
-	if err != nil {
-		return
-	}
-}
-
-func readAllDocumentsInCollection(collection, baseDir string) ([]Document, error) {
-	_, err := os.Stat(path.Join(baseDir, collection))
-	if err != nil {
-		// path does not exist, return empty slice, does not create dir
-		return []Document{}, nil
-	}
-
-	files, err := ioutil.ReadDir(path.Join(baseDir, collection))
-	if err != nil {
-		return nil, err
-	}
-
-	docs := []Document{}
-	for _, file := range files {
-		if strings.HasSuffix(file.Name(), ".json") {
-			b, err := ioutil.ReadFile(path.Join(baseDir, collection, file.Name()))
-			if err != nil {
-				return nil, err
-			}
-			var doc Document
-			err = json.Unmarshal(b, &doc)
-			if err != nil {
-				return nil, err
-			}
-			docs = append(docs, doc)
-		}
-	}
-
-	return docs, nil
-}
-
-func deleteDocumentFromDisk(collection, id, baseDir string) {
-	filename := path.Join(baseDir, collection, id+".json")
-	_ = os.Remove(filename)
-}
 
 func generateObjectID() string {
 	buf := make([]byte, 16)
@@ -212,14 +29,87 @@ func generateObjectID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", buf[0:4], buf[4:6], buf[6:8], buf[8:10], buf[10:])
 }
 
-func ensureCollectionDirExists(baseDir, collection string) error {
-	_, err := os.Stat(path.Join(baseDir, collection))
-	if os.IsNotExist(err) {
-		err = os.MkdirAll(path.Join(baseDir, collection), os.ModePerm)
-		if err != nil {
-			return err
+func New() *Amnesia {
+	return &Amnesia{
+		persistor: &memoryPersistor{
+			collections: map[string]map[string]any{},
+		},
+	}
+}
+
+func NewWithFilePersistor(baseDir string) *Amnesia {
+	return &Amnesia{
+		persistor: &filePersistor{
+			baseDir: baseDir,
+		},
+	}
+}
+
+func NewWithCustomPersistor(persistor Persistor) *Amnesia {
+	return &Amnesia{
+		persistor: persistor,
+	}
+}
+
+func (am *Amnesia) Collection(name string) *Collection {
+	return &Collection{
+		persistor: am.persistor,
+		name:      name,
+	}
+}
+
+func (co *Collection) Find(filter Filter) []Document {
+	all := co.persistor.Read(co.name)
+	docs := []Document{}
+
+	for _, doc := range all {
+		match := true
+		for k := range filter {
+			if doc[k] != filter[k] {
+				match = false
+				break
+			}
+		}
+
+		if match {
+			docs = append(docs, doc)
+		}
+	}
+
+	return docs
+}
+
+func (co *Collection) FindAll() []Document {
+	return co.persistor.Read(co.name)
+}
+
+func (co *Collection) FindOne(filter Filter) Document {
+	all := co.persistor.Read(co.name)
+	for _, doc := range all {
+		match := true
+		for k := range filter {
+			if doc[k] != filter[k] {
+				match = false
+				break
+			}
+		}
+
+		if match {
+			return doc
 		}
 	}
 
 	return nil
+}
+
+func (co *Collection) Insert(x any) (string, error) {
+	return co.persistor.Write(co.name, x)
+}
+
+func (co *Collection) Update(update Document) error {
+	return co.persistor.Update(co.name, update)
+}
+
+func (co *Collection) Delete(filter Filter) error {
+	return co.persistor.Delete(co.name, filter)
 }
