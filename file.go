@@ -43,6 +43,17 @@ func (fp *filePersistor) Write(collection string, x any) (string, error) {
 		return "", err
 	}
 
+	switch x.(type) {
+	case string:
+		panic("cannot be primitive type")
+	case bool:
+		panic("cannot be primitive type")
+	case uint:
+		panic("cannot be primitive type")
+	case int:
+		panic("cannot be primitive type")
+	}
+
 	var doc Document
 	data, err := json.Marshal(x)
 	if err != nil {
